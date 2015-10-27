@@ -36,6 +36,9 @@ class GameManage(Resource):
     parser.add_argument('action', required=True, help='Action can be start, skip or abort')
     return parser
 
+  def get(self):
+    return game.GAMES
+
   def put(self):
     args = self._get_parser().parse_args()
 

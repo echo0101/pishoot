@@ -7,7 +7,7 @@ class Leaderboard(Resource):
     retval = []
     position = 1
     for leader in models.get_leaders():
-      v = {"name": leader.name, "score": leader.score, "position": position}
+      v = {"id": leader.id, "name": leader.name, "score": leader.score, "position": position}
       position+=1
       retval.append(v)
     return retval

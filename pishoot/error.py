@@ -8,9 +8,10 @@ class InvalidAPIUsage(Exception):
       self.status_code = status_code
     self.payload = payload
 
-    def to_dict(self):
-      retval = dict(self.payload or ())
-      retval['message'] = self.message
-      return rv
+  def to_dict(self):
+    retval = dict(self.payload or ())
+    retval['status'] = "error"
+    retval['message'] = self.message
+    return retval 
 
 

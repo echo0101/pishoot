@@ -2,8 +2,7 @@ import RPi.GPIO as GPIO
 from multiprocessing import Lock
 from pishoot.error import InvalidAPIUsage
 from pishoot import mp, db, models, app
-import time,random
-import sys
+import time,random,sys,datetime
 
 GAME_A = "A"
 GAME_B = "B"
@@ -16,7 +15,7 @@ TARGET_STATE_ACTIVE = 1
 
 GAMES = [GAME_A,GAME_B]
 TARGET_PINS = {
-    GAME_A: [(7,8), (11,10), (13,12), (15,16)], 
+    GAME_A: [(7,8), (11,10)], (13,12), (15,16)], 
     GAME_B: [(19,18), (21,22), (23,24), (29,26)]
     }
 
@@ -33,6 +32,8 @@ def init_pins():
       GPIO.setup(pair[0], GPIO.OUT)
       GPIO.setup(pair[1], GPIO.IN) #TODO determine internal pull-up/down
       sys.stdout.flush()
+    _clear_targets(game)
+    _output_targets(game)
 
 def get_game_state(game_id):
   global GAME_STATE
@@ -55,6 +56,7 @@ def _game_runner(game_id):
   if not game_info['lock'].acquire(False):
     raise InvalidAPIUsage("game already in-progress (failed to acquire lock)")
   game_info['state'] = GAME_STATE_ACTIVE
+  print game_info['state']
 
   _clear_targets(game_id)
 
@@ -67,20 +69,24 @@ def _game_runner(game_id):
     time.sleep(1)
 
   _clear_targets(game_id)
+  _output_targets(game_id)
 
   game_info['lock'].release()
   game_info['state'] = GAME_STATE_READY
 
-  return {"game_id": game_id, "score": game_info["score"], "player": game_info["player"]}
+  return {"game_id": game_id, "score": game_info["score"]}
 
 def _record_result(result_info):
-  result_info["player"].score = result_info["score"]
-  db.session.add(result_info["player"])
+  player = models.get_player_in_game(result_info["game_id"])
+  player.score = result_info["score"]
+  player.in_queue = False
+  db.session.add(player)
   db.session.commit()
   update_queue()
 
 #callback for sensor event detect
 def _record_hit(channel, game_id):
+  print game_id, "recording hit on %d" % channel
   GPIO.remove_event_detect(channel)
 
   game_info = get_game_state(game_id)
@@ -88,8 +94,10 @@ def _record_hit(channel, game_id):
   for target in game_info["targets"]:
     if target["sensor"] == channel:
       target["state"] = TARGET_STATE_INACTIVE
+      GPIO.output(target["target"], GPIO.HIGH)
       game_info["score"] += 1
 
+  time.sleep(1)
   _set_target(game_id)
 
 # sets pinouts and event listeners
@@ -98,7 +106,7 @@ def _output_targets(game_id):
   for target in game_info['targets']:
     if target["state"] == TARGET_STATE_ACTIVE:
       GPIO.output(target["target"], GPIO.LOW)
-      GPIO.add_event_detect(target["sensor"], GPIO.RISING, callback=lambda x:_record_hit(x,game_id), bouncetime=200)
+      GPIO.add_event_detect(target["sensor"], GPIO.RISING, callback=lambda x:_record_hit(x,game_id), bouncetime=1000)
     else:
       GPIO.output(target["target"], GPIO.HIGH)
       GPIO.remove_event_detect(target["sensor"])
@@ -108,7 +116,6 @@ def _clear_targets(game_id):
   game_info = get_game_state(game_id)
   for target in game_info['targets']:
     target["state"] = TARGET_STATE_INACTIVE
-  _output_targets(game_id)
 
 # randomly choose the next taret and set pinout
 def _set_target(game_id):
@@ -123,7 +130,7 @@ def start_game(game_id):
   player = models.get_player_in_game(game_id)
   if player is None:
     raise InvalidAPIUsage("no player in game, queue player first.")
-  player.play_time = datetime.datetime.utcnow
+  player.play_time = datetime.datetime.utcnow()
   db.session.add(player)
   db.session.commit()
   pool = mp.get_pool()
@@ -165,12 +172,12 @@ def get_players_in_game():
     else:
       info["player"] = ""
     info["state"] = "PLAYING" if game_info['state'] == GAME_STATE_ACTIVE else "READY"
+    print "state at get players" , game, game_info['state']
     retval.append(info)
   return retval
 
-@app.teardown_appcontext
-def cleanup_gpio(exception):
-  print "cleaning up gpio"
-  GPIO.cleanup()
-
+#@app.teardown_appcontext
+#def cleanup_gpio(exception):
+#  print "cleaning up gpio"
+#  GPIO.cleanup()
 

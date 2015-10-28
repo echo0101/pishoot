@@ -135,6 +135,7 @@ def start_game(game_id):
   db.session.commit()
   pool = mp.get_pool()
   pool.apply_async(_game_runner, (game_id,), callback=_record_result)
+  return {"status": "success"}
 
 def skip_player(game_id):
   raise InvalidAPIUsage("not yet implemented", status_code=500)

@@ -30,7 +30,10 @@ def init_pins():
     for pair in TARGET_PINS[game]:
       print game, " setting pair (%d,%d)" % pair
       GPIO.setup(pair[0], GPIO.OUT)
-      GPIO.setup(pair[1], GPIO.IN) #TODO determine internal pull-up/down
+      GPIO.setup(pair[1], GPIO.IN)
+      GPIO.output(pair[0], GPIO.LOW)
+      GPIO.wait_for_edge(pair[1], GPIO.RISING)
+      GPIO.output(pair[0], GPIO.HIGH)
       sys.stdout.flush()
     _clear_targets(game)
     _output_targets(game)

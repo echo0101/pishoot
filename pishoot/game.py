@@ -1,5 +1,5 @@
 import RPi.GPIO as GPIO
-from multiprocessing import Lock
+from multiprocessing import Lock, Value
 from pishoot.error import InvalidAPIUsage
 from pishoot import mp, db, models, app
 import time,random,sys,datetime
@@ -15,7 +15,7 @@ TARGET_STATE_ACTIVE = 1
 
 GAMES = [GAME_A,GAME_B]
 TARGET_PINS = {
-    GAME_A: [(7,8), (11,10), (13,12), (15,16)], 
+    GAME_A: [ (7,8), (11,10), (13,12), (15,16),], 
     GAME_B: [(19,18), (21,22), (23,24), (29,26)]
     }
 
@@ -31,9 +31,10 @@ def init_pins():
       print game, " setting pair (%d,%d)" % pair
       GPIO.setup(pair[0], GPIO.OUT)
       GPIO.setup(pair[1], GPIO.IN)
-      GPIO.output(pair[0], GPIO.LOW)
-      GPIO.wait_for_edge(pair[1], GPIO.RISING)
-      GPIO.output(pair[0], GPIO.HIGH)
+      if app.config['SELF_TEST'] == True:
+        GPIO.output(pair[0], GPIO.HIGH)
+        GPIO.wait_for_edge(pair[1], GPIO.RISING)
+        GPIO.output(pair[0], GPIO.LOW)
       sys.stdout.flush()
     _clear_targets(game)
     _output_targets(game)
@@ -43,7 +44,7 @@ def get_game_state(game_id):
   if GAME_STATE is None:
     GAME_STATE = {}
     for game in GAMES:
-      game_info = {"state": GAME_STATE_READY, "score": 0, "targets": [], "lock": Lock(), "player": None}
+      game_info = {"state": Value('i',GAME_STATE_READY), "score": 0, "targets": [], "lock": Lock(), "player": None}
       for pairs in TARGET_PINS[game]:
         game_info["targets"].append({"target": pairs[0], "sensor": pairs[1], "state": TARGET_STATE_INACTIVE})
       GAME_STATE[game] = game_info
@@ -58,8 +59,8 @@ def _game_runner(game_id):
 
   if not game_info['lock'].acquire(False):
     raise InvalidAPIUsage("game already in-progress (failed to acquire lock)")
-  game_info['state'] = GAME_STATE_ACTIVE
-  print game_info['state']
+  game_info['state'].value = GAME_STATE_ACTIVE
+  print game_info['state'].value
 
   _clear_targets(game_id)
 
@@ -75,7 +76,7 @@ def _game_runner(game_id):
   _output_targets(game_id)
 
   game_info['lock'].release()
-  game_info['state'] = GAME_STATE_READY
+  game_info['state'].value = GAME_STATE_READY
 
   return {"game_id": game_id, "score": game_info["score"]}
 
@@ -89,29 +90,32 @@ def _record_result(result_info):
 
 #callback for sensor event detect
 def _record_hit(channel, game_id):
-  print game_id, "recording hit on %d" % channel
   GPIO.remove_event_detect(channel)
 
   game_info = get_game_state(game_id)
+  if not game_info["state"].value == GAME_STATE_ACTIVE:
+    return
+  print game_id, "recording hit on %d" % channel
 
   for target in game_info["targets"]:
     if target["sensor"] == channel:
       target["state"] = TARGET_STATE_INACTIVE
-      GPIO.output(target["target"], GPIO.HIGH)
+      GPIO.output(target["target"], GPIO.LOW)
       game_info["score"] += 1
 
   time.sleep(1)
-  _set_target(game_id)
+  if game_info["state"].value == GAME_STATE_ACTIVE:
+    _set_target(game_id)
 
 # sets pinouts and event listeners
 def _output_targets(game_id):
   game_info = get_game_state(game_id)
   for target in game_info['targets']:
     if target["state"] == TARGET_STATE_ACTIVE:
-      GPIO.output(target["target"], GPIO.LOW)
+      GPIO.output(target["target"], GPIO.HIGH)
       GPIO.add_event_detect(target["sensor"], GPIO.RISING, callback=lambda x:_record_hit(x,game_id), bouncetime=1000)
     else:
-      GPIO.output(target["target"], GPIO.HIGH)
+      GPIO.output(target["target"], GPIO.LOW)
       GPIO.remove_event_detect(target["sensor"])
 
 # sets all targets to inactive
@@ -128,7 +132,7 @@ def _set_target(game_id):
 
 def start_game(game_id):
   game_info = get_game_state(game_id)
-  if game_info['state'] == GAME_STATE_ACTIVE:
+  if game_info['state'].value == GAME_STATE_ACTIVE:
     raise InvalidAPIUsage("game already in-progress, abort to start a new game.")
   player = models.get_player_in_game(game_id)
   if player is None:
@@ -152,7 +156,7 @@ def update_queue():
     if player is None:
       break
     game_info = get_game_state(game)
-    if game_info['state']== GAME_STATE_READY and models.get_player_in_game(game) is None:
+    if game_info['state'].value == GAME_STATE_READY and models.get_player_in_game(game) is None:
       player.game_id = game
       db.session.add(player)
       player = models.get_next_in_queue()
@@ -175,8 +179,7 @@ def get_players_in_game():
       info["player"] = player.name
     else:
       info["player"] = ""
-    info["state"] = "PLAYING" if game_info['state'] == GAME_STATE_ACTIVE else "READY"
-    print "state at get players" , game, game_info['state']
+    info["state"] = "PLAYING" if game_info['state'].value == GAME_STATE_ACTIVE else "READY"
     retval.append(info)
   return retval
 

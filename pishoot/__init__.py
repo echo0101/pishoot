@@ -4,6 +4,8 @@ from flask.ext.sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 
+app.config['SELF_TEST'] = False 
+
 app.config['SECRET_KEY'] = 'sup3r-$ecret'
 app.config['API_KEY'] = 'sup3r-$ecret'
 app.config['MY_URL'] = 'http://localhost:5000'
@@ -11,7 +13,7 @@ app.config['MY_URL'] = 'http://localhost:5000'
 app.config['APP_LOG'] = 'pishoot.log'
 
 # db config
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/pishoot.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////home/pi/pishoot/pishoot.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # load local config

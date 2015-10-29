@@ -10,7 +10,7 @@ class Leaderboard(Resource):
       v = {"id": leader.id, "name": leader.name, "score": leader.score, "position": position}
       position+=1
       retval.append(v)
-    return retval
+    return {"count": len(retval), "data": retval}
 
 class Queue(Resource):
   def _get_parser(self):
